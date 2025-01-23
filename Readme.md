@@ -1,5 +1,7 @@
 # Expense Tracker CLI 💸
 
+*https://roadmap.sh/projects/expense-tracker*
+
 Una aplicación de línea de comandos (CLI) para gestionar gastos personales, desarrollada en Node.js.
 
 ## Características 🚀
