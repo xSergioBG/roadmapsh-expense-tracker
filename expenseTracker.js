@@ -2,35 +2,53 @@ const fs = require("fs");
 const path = require("path");
 const { Command } = require("commander");
 
-const dataFilePath = path.join(__dirname, "expenses.json");
+const dataFilePath = process.env.EXPENSES_FILE || path.join(__dirname, "expenses.json");
 
-// Load expenses from file
+// Invalid JSON must never be interpreted as an empty ledger.
 function loadExpenses() {
+  let data;
+  try { data = fs.readFileSync(dataFilePath, "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return []; throw error; }
+  const expenses = data.trim() ? JSON.parse(data) : [];
+  if (!Array.isArray(expenses) || expenses.some(e => !e ||
+      !Number.isSafeInteger(e.id) || e.id < 1 || typeof e.description !== "string" ||
+      !Number.isFinite(e.amount) || e.amount <= 0 || typeof e.date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(e.date) || Number.isNaN(Date.parse(e.date))) ||
+      new Set(expenses.map(e => e.id)).size !== expenses.length) {
+    throw new Error("Invalid expenses file; recover it before making changes.");
+  }
+  return expenses;
+}
+function saveExpenses(expenses) {
+  const temporary = dataFilePath + "." + process.pid + ".tmp";
   try {
-    const data = fs.readFileSync(dataFilePath, "utf8");
-    return JSON.parse(data);
-  } catch (error) {
-    return [];
+    fs.writeFileSync(temporary, JSON.stringify(expenses, null, 2), "utf8");
+    fs.renameSync(temporary, dataFilePath);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
   }
 }
-
-// Save expenses to file
-function saveExpenses(expenses) {
-  fs.writeFileSync(dataFilePath, JSON.stringify(expenses, null, 2), "utf8");
+function positiveInteger(value, label) {
+  if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+    throw new Error(label + " must be a positive integer.");
+  }
+  return Number(value);
 }
-
-// Add an expense
 function addExpense(description, amount) {
+  if (!description.trim()) throw new Error("Description cannot be empty.");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(String(amount)) || Number(amount) <= 0 ||
+      !Number.isSafeInteger(Math.round(Number(amount) * 100))) {
+    throw new Error("Amount must be positive with at most two decimal places.");
+  }
   const expenses = loadExpenses();
-  const expense = {
-    id: expenses.length + 1,
-    date: new Date().toISOString().split("T")[0], // Get the current date (YYYY-MM-DD)
-    description,
-    amount: parseFloat(amount),
-  };
-  expenses.push(expense);
+  const id = expenses.reduce((maximum, e) => Math.max(maximum, e.id), 0) + 1;
+  positiveInteger(id, "ID");
+  expenses.push({
+    id, date: new Date().toISOString().split("T")[0],
+    description: description.trim(), amount: Number(amount),
+  });
   saveExpenses(expenses);
-  console.log(`Expense added successfully (ID: ${expense.id})`);
+  console.log(`Expense added successfully (ID: ${id})`);
 }
 
 // List all expenses
@@ -55,9 +73,10 @@ function getSummary(month = null) {
     : expenses;
 
   filteredExpenses.forEach((expense) => {
-    total += expense.amount;
+    total += Math.round(expense.amount * 100);
   });
 
+  total /= 100;
   if (month) {
     console.log(`Total expenses for month ${month}: $${total}`);
   } else {
@@ -68,6 +87,7 @@ function getSummary(month = null) {
 // Delete an expense by ID
 function deleteExpense(id) {
   let expenses = loadExpenses();
+  if (!expenses.some(expense => expense.id === id)) throw new Error(`Expense with ID ${id} not found.`);
   expenses = expenses.filter((expense) => expense.id !== id);
   saveExpenses(expenses);
   console.log("Expense deleted successfully");
@@ -97,7 +117,8 @@ program
   .description("Show a summary of expenses")
   .option("--month <month>", "Specify the month (1-12) to filter by")
   .action((cmd) => {
-    const month = cmd.month ? parseInt(cmd.month, 10) : null;
+    const month = cmd.month === undefined ? null : positiveInteger(cmd.month, "Month");
+    if (month !== null && month > 12) throw new Error("Month must be between 1 and 12.");
     getSummary(month);
   });
 
@@ -106,8 +127,13 @@ program
   .description("Delete an expense by ID")
   .requiredOption("--id <id>", "ID of the expense to delete")
   .action((cmd) => {
-    deleteExpense(parseInt(cmd.id, 10));
+    deleteExpense(positiveInteger(cmd.id, "ID"));
   });
 
 // Parse the command-line arguments
-program.parse(process.argv);
+try {
+  program.parse(process.argv);
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
+}
