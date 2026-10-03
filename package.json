@@ -1,15 +1,19 @@
 {
   "name": "expense-tracker",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "expenseTracker.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "start": "node expenseTracker.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Gestor de gastos CLI con almacenamiento JSON y validación de entradas",
   "dependencies": {
     "commander": "^13.1.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
